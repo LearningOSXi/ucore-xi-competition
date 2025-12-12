@@ -2,6 +2,7 @@
 #include "defs.h"
 #include "loader.h"
 #include "trap.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 char kstack[NPROC][PAGE_SIZE];
@@ -84,6 +85,10 @@ void scheduler(void)
 				/*
 				* LAB1: you may need to init proc start time here
 				*/
+				if(p->scheduled == 0) {
+					p->first_schedule_cycle = get_cycle();
+					p->scheduled = 1;
+				}
 				p->state = RUNNING;
 				current_proc = p;
 				swtch(&idle.context, &p->context);
