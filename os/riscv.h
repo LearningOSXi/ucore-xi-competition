@@ -73,9 +73,9 @@ static inline void w_sip(uint64 x)
 }
 
 // Supervisor Interrupt Enable
-#define SIE_SEIE (1L << 9) // external
-#define SIE_STIE (1L << 5) // timer
-#define SIE_SSIE (1L << 1) // software
+#define SIE_SEIE (1L << 9) // external 外部中断
+#define SIE_STIE (1L << 5) // timer    定时器中断
+#define SIE_SSIE (1L << 1) // software 软件中断
 static inline uint64 r_sie()
 {
 	uint64 x;
@@ -224,11 +224,12 @@ static inline uint64 r_mcounteren()
 	return x;
 }
 
-// machine-mode cycle counter
+// machine-mode cycle counter 机器模式的周期计数器
 static inline uint64 r_time()
 {
 	uint64 x;
-	asm volatile("csrr %0, time" : "=r"(x));
+	asm volatile("csrr %0, time" : "=r"(x)); // 内联汇编读取time寄存器
+	// time寄存器会自动地、随着时间递增。
 	return x;
 }
 
