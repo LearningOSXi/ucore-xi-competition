@@ -5,6 +5,8 @@
 #include "timer.h"
 #include "trap.h"
 #include "proc.h"
+#include "vm.h"
+#include "riscv.h"
 
 uint64 sys_write(int fd, uint64 va, uint len)
 {
@@ -50,13 +52,75 @@ uint64 sys_gettimeofday(TimeVal *val, int _tz) // TODO: implement sys_gettimeofd
 uint64 sys_sbrk(int n)
 {
 	uint64 addr;
-        struct proc *p = curr_proc();
-        addr = p->program_brk;
-        if(growproc(n) < 0)
-                return -1;
-        return addr;	
+	struct proc *p = curr_proc();
+	addr = p->program_brk;
+	if(growproc(n) < 0)
+		return -1;
+	return addr;	
 }
 
+uint64 sys_mmap(void *start, unsigned long long len, int port, int flag, int sd)
+{
+	if(len > (1ULL << 30)) return -1; // 最大不可超过1GB
+	if(len == 0) return 0;
+
+	uint64 va = (uint64)start;
+	uint64 vend = PGROUNDUP(va+len);
+
+	// start 没有页对齐 || 物理内存不足  || port其他位不全为0 || 不可读不可写不可执行的内存
+	if(!PGALIGNED(va) || vend > MAXVA || (port & ~0x7) != 0 || (port & 0x7) == 0){ 
+		return -1;
+	}
+
+	pagetable_t pagetable = curr_proc()->pagetable;
+
+	// 权限
+	int perm = (port << 1) | PTE_U;
+
+	// 检查是否存在被映射过的虚存
+	for(uint64 a = va; a < vend; a+=PAGE_SIZE){
+		if(walkaddr(pagetable, a) != 0)
+			return -1;
+	}
+
+	// 分配并映射
+	for(;va < vend; va+=PAGE_SIZE){
+		uint64 pa = (uint64)kalloc();
+		if(pa == 0) return -1; // 没有空闲物理页
+		memset((void*)pa, 0, PAGE_SIZE);
+		if(mappages(pagetable, va, PAGE_SIZE, pa, perm) != 0 ){ 
+			//已被映射或者页表物理页分配失败
+			return -1;
+		}
+	}
+	
+	return 0;
+}
+
+uint64 sys_munmap(void *start, unsigned long long len){
+	if(len > (1ULL << 30)) return -1; // 最大不可超过1GB
+	if(len == 0) return 0;
+
+	uint64 va = (uint64)start;
+	uint64 vend = PGROUNDUP(va+len);
+
+	// 检查start有没有页对齐
+	if(!PGALIGNED(va) || vend > MAXVA) return -1; 
+
+	pagetable_t pagetable = curr_proc()->pagetable;
+	
+	// 检查是否存在未被映射的虚存
+	for(uint64 a = va; a < vend; a+=PAGE_SIZE){
+		if(walkaddr(pagetable, a) == 0)
+			return -1;
+	}
+
+	// 取消映射
+	int npages = (vend-va) / PGSIZE;
+	uvmunmap(pagetable, va, npages, 1);
+
+	return 0;
+}
 
 
 // TODO: add support for mmap and munmap syscall.
@@ -98,6 +162,12 @@ void syscall()
 	/*
 	* LAB1: you may need to add SYS_taskinfo case here
 	*/
+	case SYS_mmap:
+		ret = sys_mmap((void *)args[0], args[1], args[2], args[3], args[4]);
+		break;
+	case SYS_munmap:
+		ret = sys_munmap((void *)args[0], args[1]);
+		break;
 	default:
 		ret = -1;
 		errorf("unknown syscall %d", id);
